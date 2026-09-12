@@ -1,0 +1,6 @@
+{
+    "clangd.arguments": [
+        "--compile-commands-dir=build",
+        "--query-driver=/home/lokesh/.luckfox-pico-toolchain/arm-rockchip830-linux-uclibcgnueabihf/bin/*"
+    ]
+}

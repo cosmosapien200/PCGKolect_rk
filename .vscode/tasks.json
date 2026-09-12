@@ -1,0 +1,55 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "RV1103: Init",
+            "type": "shell",
+            "command": "make init",
+            "group": "build"
+        },
+        {
+            "label": "RV1103: Build",
+            "type": "shell",
+            "command": "make build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "RV1103: Clean",
+            "type": "shell",
+            "command": "make clean"
+        },
+        {
+            "label": "RV1103: Rebuild",
+            "type": "shell",
+            "command": "make rebuild"
+        },
+        {
+            "label": "RV1103: Connect USB",
+            "type": "shell",
+            "command": "make connect"
+        },
+        {
+            "label": "RV1103: Upload",
+            "type": "shell",
+            "command": "make upload"
+        },
+        {
+            "label": "RV1103: Run",
+            "type": "shell",
+            "command": "make run"
+        },
+        {
+            "label": "RV1103: Shell",
+            "type": "shell",
+            "command": "make shell"
+        },
+        {
+            "label": "RV1103: Dev",
+            "type": "shell",
+            "command": "make dev"
+        }
+    ]
+}
