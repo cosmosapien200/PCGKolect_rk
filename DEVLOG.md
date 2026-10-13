@@ -1,5 +1,50 @@
 # Development Log
 
+## 2026-10-13 — Display Troubleshooting: Title Cutoff Fix
+
+### Problem
+
+After integrating u8g2-linux, the title "PCGKolect RV1103" was partially cut off at the top of the SSD1306 display. The first line was barely visible or completely missing.
+
+### Root Cause
+
+**u8g2 uses a baseline coordinate system, not top-left.** In u8g2, the `y` parameter in `drawStr(x, y, text)` is the **text baseline** (the imaginary line the text sits on), NOT the top edge of the bounding box.
+
+The original code used:
+```cpp
+u8g2.drawStr(2, 8, "PCGKolect RV1103");  // baseline at y=8
+```
+
+With the `u8g2_font_6x13_tr` font (13 pixels tall), the text extends **upward** from the baseline. So at y=8, the top of the text was at approximately y = 8 - 13 = **-5**, which is off-screen. Only the bottom portion of the letters was visible.
+
+Additionally, the separator line was drawn at y=14, which overlapped with the visible bottom portion of the title text.
+
+### Fix
+
+```cpp
+u8g2.drawStr(2, 14, "PCGKolect RV1103");  // baseline at y=14
+u8g2.drawHLine(0, 16, 128);                // separator below title
+```
+
+With baseline at y=14, the 13px-tall title spans y=1 to y=14 — fully visible. The separator at y=16 sits cleanly below.
+
+All stat row y-coordinates were adjusted accordingly (28, 38, 48, 58 instead of 26, 36, 46, 56).
+
+### u8g2 Y-Coordinate Reference
+
+| Element | Font | Font Height | Baseline Y | Visible Y Range |
+|---------|------|-------------|------------|-----------------|
+| Title | 6x13_tr | 13px | 14 | 1 – 14 |
+| Separator | — | — | — | y=16 |
+| Stats | 5x7_tf | 7px | 28, 38, 48, 58 | 21–28, 31–38, 41–48, 51–58 |
+
+### Files Changed
+- `src/display.cpp` — adjusted y-coordinates for all text elements
+
+---
+
+
+
 ## 2026-10-13 — Replace Hand-Rolled SSD1306 Driver with u8g2-linux
 
 ### Milestone
