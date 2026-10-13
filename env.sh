@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-export TOOLCHAIN_ROOT="$HOME/.luckfox-pico-toolchain/arm-rockchip830-linux-uclibcgnueabihf"
+export TOOLCHAIN_ROOT="$HOME/.luckfox-pico-sdk/luckfox-pico/tools/linux/toolchain/arm-rockchip830-linux-uclibcgnueabihf"
 
 export TARGET_TRIPLE="arm-rockchip830-linux-uclibcgnueabihf"
 

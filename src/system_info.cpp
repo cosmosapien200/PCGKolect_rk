@@ -6,5 +6,5 @@ using namespace std;
 
 void printSystemInfo()
 {
-    cout << "RV1103 Firmware Test" << endl;
+    cout << "RV1103 Firmware for PCG Kollect" << endl;
 }

@@ -11,6 +11,8 @@ add_executable(
 
     src/main.cpp
     src/system_info.cpp
+    src/pcg_stream.cpp
+    src/pcg_preprocessor.cpp
 )
 
 target_include_directories(
@@ -24,3 +26,8 @@ target_link_libraries(
     PRIVATE
         pthread
 )
+
+# --- Test: audio recording (easy to remove) ---
+add_executable(test_audio_record src/test_audio_record.cpp src/pcg_stream.cpp)
+target_include_directories(test_audio_record PRIVATE include)
+target_link_libraries(test_audio_record PRIVATE pthread)

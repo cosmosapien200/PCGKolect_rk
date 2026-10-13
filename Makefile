@@ -3,10 +3,14 @@ BUILD_DIR := build
 
 TARGET_IP := 172.32.0.81
 
-HOST_IFACE := enp0s20f0u7u4
+HOST_IFACE := enp0s20f0u7u3
 HOST_IP := 172.32.0.24/24
 
-.PHONY: init build clean rebuild connect upload run shell dev
+ADB := adb
+REMOTE_DIR := /root
+REMOTE_BIN := $(REMOTE_DIR)/$(PROJECT)
+
+.PHONY: init build clean rebuild connect adb-connect upload run shell dev test-build test-upload test-run test
 
 init:
 	cmake -B $(BUILD_DIR) \
@@ -21,18 +25,44 @@ clean:
 
 rebuild: clean init build
 
+# Configure the host USB network interface
 connect:
 	sudo ip link set $(HOST_IFACE) up
 	sudo ip addr flush dev $(HOST_IFACE)
 	sudo ip addr add $(HOST_IP) dev $(HOST_IFACE)
 
+# Connect to the target over ADB TCP/IP, if supported
+adb-connect:
+	$(ADB) connect $(TARGET_IP):5555
+
+# Upload the firmware executable
 upload:
-	scp $(BUILD_DIR)/$(PROJECT) root@$(TARGET_IP):/root/
+	$(ADB) push $(BUILD_DIR)/$(PROJECT) $(REMOTE_BIN)
+	$(ADB) shell chmod +x $(REMOTE_BIN)
 
+# Execute the firmware on the target
 run:
-	ssh root@$(TARGET_IP) "/root/$(PROJECT)"
+	$(ADB) shell "$(REMOTE_BIN)"
 
+# Open an interactive shell on the target
 shell:
-	ssh root@$(TARGET_IP)
+	$(ADB) shell
 
+# Build, upload, and execute
 dev: build upload run
+
+# --- Test: audio recording (easy to remove) ---
+test-build:
+	cmake -B $(BUILD_DIR) \
+		-DCMAKE_TOOLCHAIN_FILE=cmake/rv1103-toolchain.cmake \
+		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+	cmake --build $(BUILD_DIR) --target test_audio_record
+
+test-upload:
+	$(ADB) push $(BUILD_DIR)/test_audio_record $(REMOTE_DIR)/test_audio_record
+	$(ADB) shell chmod +x $(REMOTE_DIR)/test_audio_record
+
+test-run:
+	$(ADB) shell "$(REMOTE_DIR)/test_audio_record"
+
+test: test-build test-upload test-run
