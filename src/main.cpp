@@ -1,16 +1,33 @@
 #include "system_info.hpp"
 #include "pcg_stream.hpp"
 #include "pcg_preprocessor.hpp"
+#include "display.hpp"
 
 #include <iostream>
 #include <vector>
 #include <chrono>
+#include <cstdio>
 
 static constexpr size_t FRAME_SAMPLES = 800;  // 100 ms @ 8 kHz
 
 int main()
 {
     printSystemInfo();
+
+    // --- Display (SSD1306 on I2C3) ---
+    Display::Config dispCfg;
+    dispCfg.i2c_bus = 3;
+    dispCfg.i2c_addr = 0x78;  // 0x3C << 1
+    Display disp(dispCfg);
+    if (!disp.init()) {
+        std::cerr << "Display init failed (I2C bus " << dispCfg.i2c_bus
+                  << ", addr 0x" << std::hex << static_cast<int>(dispCfg.i2c_addr)
+                  << std::dec << ")" << std::endl;
+        // Continue without display — UART still works
+    } else {
+        std::cout << "Display initialized on I2C bus " << dispCfg.i2c_bus
+                  << std::endl;
+    }
 
     // --- Configure & open UART ---
     PcgStream stream;
@@ -43,18 +60,22 @@ int main()
               << " (Ctrl+C to stop)..." << std::endl;
 
     auto lastReport = std::chrono::steady_clock::now();
+    auto lastFlush  = std::chrono::steady_clock::now();
+    int  frameCount = 0;
+    int  crcErrors  = 0;
+    int  prevFrames = 0;
+    int  prevCrcErr = 0;
+
     while (true) {
         size_t n = stream.read(raw.data(), FRAME_SAMPLES, 200);
         if (n > 0) {
             pre.process(raw.data(), proc.data(), n);
-
-            // TODO: convert proc[] to spectrogram, feed to AI model
-            // e.g.: auto spec = stft(proc.data(), n);
-            //        model.predict(spec);
+            frameCount++;
         }
 
-        // Health report every 2 seconds.
         auto now = std::chrono::steady_clock::now();
+
+        // --- Console health report every 2 seconds ---
         if (now - lastReport >= std::chrono::seconds(2)) {
             lastReport = now;
             auto s = stream.stats();
@@ -63,6 +84,20 @@ int main()
                       << " bytes=" << s.bytes_read
                       << " avail=" << stream.available()
                       << std::endl;
+        }
+
+        // --- Display flush every 200ms ---
+        if (now - lastFlush >= std::chrono::milliseconds(200)) {
+            lastFlush = now;
+            if (disp.isInitialized()) {
+                auto s = stream.stats();
+                int crcRate = (s.crc_errors - prevCrcErr) / 2;
+                disp.drawStatus(s.frames_ok, s.crc_errors,
+                                s.bytes_read, stream.available(), crcRate);
+                disp.flush();
+                prevFrames = s.frames_ok;
+                prevCrcErr = s.crc_errors;
+            }
         }
     }
 

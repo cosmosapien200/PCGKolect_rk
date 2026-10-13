@@ -10,7 +10,7 @@ ADB := adb
 REMOTE_DIR := /root
 REMOTE_BIN := $(REMOTE_DIR)/$(PROJECT)
 
-.PHONY: init build clean rebuild connect adb-connect upload run shell dev test-build test-upload test-run test
+.PHONY: init build clean rebuild connect adb-connect upload run shell dev
 
 init:
 	cmake -B $(BUILD_DIR) \
@@ -50,19 +50,3 @@ shell:
 
 # Build, upload, and execute
 dev: build upload run
-
-# --- Test: audio recording (easy to remove) ---
-test-build:
-	cmake -B $(BUILD_DIR) \
-		-DCMAKE_TOOLCHAIN_FILE=cmake/rv1103-toolchain.cmake \
-		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-	cmake --build $(BUILD_DIR) --target test_audio_record
-
-test-upload:
-	$(ADB) push $(BUILD_DIR)/test_audio_record $(REMOTE_DIR)/test_audio_record
-	$(ADB) shell chmod +x $(REMOTE_DIR)/test_audio_record
-
-test-run:
-	$(ADB) shell "$(REMOTE_DIR)/test_audio_record"
-
-test: test-build test-upload test-run
