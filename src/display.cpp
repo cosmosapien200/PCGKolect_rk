@@ -40,34 +40,34 @@ void Display::drawStatus(int frames_ok, int crc_errors, int bytes_read,
 {
     u8g2.clearBuffer();
 
-    // --- Title bar ---
+    // --- Title (6x13 font, 13px tall; baseline at y=14 puts text in y=1..14) ---
     u8g2.setFont(u8g2_font_6x13_tr);
-    u8g2.drawStr(2, 8, "PCGKolect RV1103");
+    u8g2.drawStr(2, 14, "PCGKolect RV1103");
 
     // --- Separator line ---
-    u8g2.drawHLine(0, 14, 128);
+    u8g2.drawHLine(0, 16, 128);
 
-    // --- Row 1: Frame rate / CRC ---
+    // --- Stat rows (5x7 font, 7px tall) ---
     u8g2.setFont(u8g2_font_5x7_tf);
     char buf[64];
+
     snprintf(buf, sizeof(buf), "Frames: %6d", frames_ok);
-    u8g2.drawStr(2, 26, buf);
+    u8g2.drawStr(2, 28, buf);
 
     snprintf(buf, sizeof(buf), "CRC err: %5d", crc_errors);
-    u8g2.drawStr(2, 36, buf);
+    u8g2.drawStr(2, 38, buf);
 
-    // --- Row 2: Bytes / Buffer ---
     snprintf(buf, sizeof(buf), "Bytes: %7d", bytes_read);
-    u8g2.drawStr(2, 46, buf);
+    u8g2.drawStr(2, 48, buf);
 
     snprintf(buf, sizeof(buf), "Buf: %5d", buffer_available);
-    u8g2.drawStr(2, 56, buf);
+    u8g2.drawStr(2, 58, buf);
 
-    // --- CRC rate indicator (right side) ---
+    // --- CRC rate indicator (right side, aligned with CRC err row) ---
     if (crc_rate > 5) {
-        u8g2.drawStr(90, 36, "!CRC!");
+        u8g2.drawStr(90, 38, "!CRC!");
     } else if (crc_rate > 0) {
-        u8g2.drawStr(90, 36, "CRC");
+        u8g2.drawStr(90, 38, "CRC");
     }
 
     // --- Uptime / heartbeat dot ---
