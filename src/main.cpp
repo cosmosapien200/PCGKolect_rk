@@ -6,6 +6,8 @@
 #include "seg_model.hpp"
 #include "seg_quality.hpp"
 #include "session_recorder.hpp"
+#include "control_server.hpp"
+#include "file_service.hpp"
 
 #include <iostream>
 #include <vector>
@@ -17,6 +19,7 @@
 #include <thread>
 #include <atomic>
 #include <csignal>
+#include <cstring>
 
 static constexpr size_t FRAME_SAMPLES = 800;  // 100 ms @ 8 kHz
 
@@ -25,6 +28,7 @@ static void onSignal(int) { g_stop = true; }
 
 int main(int argc, char** argv)
 {
+    setvbuf(stdout, nullptr, _IOLBF, 0);   // line-buffered log even when redirected
     printSystemInfo();
 
     // --- Display (SSD1306 on I2C3) ---
@@ -65,6 +69,51 @@ int main(int argc, char** argv)
     if (!replay)
         std::cout << "UART connected: " << streamCfg.device
                   << " @ " << streamCfg.baud << std::endl;
+
+    // --- Control plane over the same UART (typed message frames) ---
+    ControlServer ctrl(stream);
+    FileService files(stream);
+    files.registerOps(ctrl);
+    ctrl.on("ping", [](ControlServer::Ctx&) {});
+    ctrl.on("link_stats", [&stream, &ctrl](ControlServer::Ctx& c) {
+        const auto s = stream.stats();
+        cJSON_AddNumberToObject(c.rsp, "baud", s.baud);
+        cJSON_AddNumberToObject(c.rsp, "frames_ok", (double)s.frames_ok);
+        cJSON_AddNumberToObject(c.rsp, "crc_errors", (double)s.crc_errors);
+        cJSON_AddNumberToObject(c.rsp, "malformed", (double)s.malformed);
+        cJSON_AddNumberToObject(c.rsp, "seq_gaps", (double)s.seq_gaps);
+        cJSON_AddNumberToObject(c.rsp, "discontinuity", (double)s.discontinuity);
+        cJSON_AddNumberToObject(c.rsp, "overruns", (double)s.overruns);
+        cJSON_AddNumberToObject(c.rsp, "bytes_read", (double)s.bytes_read);
+        cJSON_AddNumberToObject(c.rsp, "msg_ok", (double)s.msg_ok);
+        cJSON_AddNumberToObject(c.rsp, "msg_tx", (double)s.msg_tx);
+        cJSON_AddNumberToObject(c.rsp, "req_dropped", (double)ctrl.dropped());
+    }, false);
+    ctrl.on("baud", [&stream](ControlServer::Ctx& c) {
+        const int b = static_cast<int>(ControlServer::num(c.req, "baud", 0));
+        if (b != 460800 && b != 921600 && b != 1500000 && b != 2000000 && b != 3000000 && b != 4000000)
+            return ControlServer::reject(c, "INVALID", "baud");
+        // answer at the old rate, then switch once it is on the wire
+        char* t = cJSON_PrintUnformatted(c.rsp);
+        stream.sendMsg(PcgStream::kRsp, t, std::strlen(t));
+        cJSON_free(t);
+        c.no_reply = true;
+        stream.switchBaud(b);
+    }, false);
+    ctrl.on("flood", [&stream](ControlServer::Ctx& c) {
+        const uint32_t bytes = static_cast<uint32_t>(ControlServer::num(c.req, "bytes", 0));
+        const uint32_t id = c.id;
+        std::thread([&stream, bytes, id] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::vector<uint8_t> buf(4096);
+            for (uint32_t off = 0; off < bytes; off += 4096) {
+                const uint32_t n = std::min<uint32_t>(4096, bytes - off);
+                for (uint32_t i = 0; i < n; i++) buf[i] = static_cast<uint8_t>((off + i) * 31u + 7u);
+                stream.sendChunk(id, off, buf.data(), n);
+            }
+        }).detach();
+    }, false);
+    if (!replay) ctrl.start();
 
     // --- Preprocessor ---
     PcgPreprocessor::Config preCfg;
@@ -200,6 +249,9 @@ int main(int argc, char** argv)
             auto s = stream.stats();
             std::cout << "frames=" << s.frames_ok
                       << " crc_err=" << s.crc_errors
+                      << " gaps=" << s.seq_gaps
+                      << " msg=" << s.msg_ok << "/" << s.msg_tx
+                      << " baud=" << s.baud
                       << " bytes=" << s.bytes_read
                       << " avail=" << stream.available()
                       << std::endl;
@@ -256,6 +308,7 @@ int main(int argc, char** argv)
         std::printf("Session summary: usable beats=%d longest run=%d hr=%.0f usable=%.1fs of %.1fs\n",
                     t.usable_beats, t.longest_run, t.hr_bpm, t.usable_s, seg->scoredSeconds());
     }
+    ctrl.stop();
     stream.close();
     return 0;
 }

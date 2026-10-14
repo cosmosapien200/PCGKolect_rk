@@ -350,3 +350,29 @@ WAV file verification:
 | `cmake/rv1103-toolchain.cmake` | **New** — cross-compile config |
 
 ---
+
+---
+
+## 2026-10-14 — Link v1: control plane and file service on `/dev/ttyS3`
+
+The ESP32 now multiplexes typed message frames (`A5 5C`, REQ/RSP/EVT/CHUNK)
+with the unchanged audio frames on the same duplex UART. Spec:
+`PCGKolect_app/docs/PROTOCOL.md`.
+
+* `PcgStream` rewritten as a link endpoint: parses both frame kinds, writes
+  whole frames under a TX mutex, tracks audio SEQ and **zero-fills missing
+  frames** (≤ 20) so the time axis stays true; every gap/overrun/discontinuity
+  is reported with its absolute sample index (`takeGaps()`).
+* Baud switching on request (`baud` op) with a 2 s revert if no valid frame
+  arrives, plus a link-loss fallback to 460800 after 3 s of silence. The ESP
+  negotiates 4 Mbaud after boot (benchmark in the ESP DEVLOG: 334 KB/s
+  stream, 128 KB/s request/response, 0 errors in an 18 MB soak).
+* `ControlServer`: request queue + worker thread, response cache (last 16 ids)
+  so retried requests run once; ops `ping`, `link_stats`, `baud`, `flood`.
+* `FileService`: `open`/`read`/`close` with ≤ 4 handles (LRU eviction),
+  4 KB `pread` chunks answered as CHUNK frames, virtual `bench` file.
+* SHA-256 (`sha256.cpp`) and cJSON 1.7.18 (`lib/cjson`, MIT) vendored.
+* stdout is line-buffered (`setvbuf`) — block buffering made `/tmp/rv.log`
+  look frozen during debugging.
+* Start detached with `setsid`: the firmware's SIGHUP handler overrides
+  `nohup`, so it exited when the adb shell closed.

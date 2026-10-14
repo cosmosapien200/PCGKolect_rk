@@ -18,6 +18,10 @@ add_executable(
     src/seg_model.cpp
     src/seg_quality.cpp
     src/session_recorder.cpp
+    src/control_server.cpp
+    src/file_service.cpp
+    src/sha256.cpp
+    lib/cjson/cJSON.c
 )
 
 # --- u8g2 library sources ---
@@ -40,6 +44,7 @@ target_include_directories(
     ${PROJECT_NAME}
     PRIVATE
         include
+        lib/cjson
         ${U8G2PATH}/cppsrc
         ${U8G2PATH}/csrc
         ${U8G2PATH}/drivers
