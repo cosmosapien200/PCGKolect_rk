@@ -411,3 +411,21 @@ with the unchanged audio frames on the same duplex UART. Spec:
 - `kill -9` during recording → restart recovers it as `interrupted` with a valid WAV.
 - Live through the ESP at 4 Mbaud: prepare → force_start → stop → manifest → fetch of
   audio/meta/quality, SHA-256 MATCH, 131 KB/s, 0 CRC errors.
+
+---
+
+## 2026-10-14 — End-to-end with the phone app
+
+### Milestone
+- Boot service verified across a reboot (needed `LD_LIBRARY_PATH=/oem/usr/lib` for
+  `librknnmrt.so`); the firmware loads the model, restores the active dataset and negotiates
+  4 Mbaud on its own.
+- First real recording driven from the phone: prepare → auto-start on a real heart after 2 s
+  of usable beats → DONE at 30.7 s usable (37 of 40 beats, longest run 21) in 37.6 s; files
+  downloaded over the phone hotspot, hash-verified, ACKed (`verified by phone` in the log).
+- Dataset-change guard observed in the app: activating another dataset while 1 untransferred
+  recording existed produced the warning; the recording kept its original dataset.
+
+### Notes
+- Audio link after the ESP core-pinning fix: 0 lost frames / 0 CRC errors over 60 s with
+  Wi-Fi up (previous ~50 lost frames/hour came from the ESP side, see its DEVLOG).
