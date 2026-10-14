@@ -1,0 +1,12 @@
+# Host build of the firmware logic tests (uses the system g++, not the RV1103 toolchain).
+#   make -f tests/Makefile.host        from the repo root
+CXX ?= g++
+SRC = tests/host_test.cpp src/pcg_stream.cpp src/control_server.cpp src/session_engine.cpp \
+      src/recording_store.cpp src/sha256.cpp
+CFLAGS = -std=c++17 -O1 -g -Wall -Iinclude -Ilib/cjson -pthread
+build/host_test: $(SRC) lib/cjson/cJSON.c
+	@mkdir -p build
+	gcc -O1 -c lib/cjson/cJSON.c -o build/cJSON_host.o
+	$(CXX) $(CFLAGS) $(SRC) build/cJSON_host.o -lutil -o $@
+	./$@
+.PHONY: build/host_test
