@@ -18,6 +18,7 @@ init:
 		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 build:
+	cmake -B $(BUILD_DIR) > /dev/null   # refresh RV_FW_VERSION from git describe
 	cmake --build $(BUILD_DIR)
 
 clean:
