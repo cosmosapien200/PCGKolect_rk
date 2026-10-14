@@ -78,6 +78,70 @@ void Display::drawStatus(int frames_ok, int crc_errors, int bytes_read,
     }
 }
 
+void Display::drawQuality(double q, const char* verdict, const char* reason, double hr_bpm,
+                          double good_s, double scored_s, double usable_beats, int crc_errors)
+{
+    u8g2.clearBuffer();
+    char buf[32];
+
+    // --- Verdict (large) + score ---
+    u8g2.setFont(u8g2_font_6x13_tr);
+    u8g2.drawStr(2, 12, verdict);
+    snprintf(buf, sizeof(buf), "Q %3d%%", static_cast<int>(q * 100 + 0.5));
+    u8g2.drawStr(86, 12, buf);
+
+    // --- Quality bar ---
+    u8g2.drawFrame(0, 16, 128, 7);
+    u8g2.drawBox(1, 17, static_cast<int>(std::min(1.0, std::max(0.0, q)) * 126), 5);
+
+    u8g2.setFont(u8g2_font_5x7_tf);
+    if (hr_bpm > 0)
+        snprintf(buf, sizeof(buf), "HR ~%3d  %s", static_cast<int>(hr_bpm + 0.5), reason);
+    else
+        snprintf(buf, sizeof(buf), "HR  --   %s", reason);
+    u8g2.drawStr(2, 33, buf);
+
+    snprintf(buf, sizeof(buf), "Usable %5.0fs / %5.0fs", good_s, scored_s);
+    u8g2.drawStr(2, 43, buf);
+
+    snprintf(buf, sizeof(buf), "Beats %4d  USR %3d%%", static_cast<int>(usable_beats),
+             scored_s > 0 ? static_cast<int>(100 * good_s / scored_s + 0.5) : 0);
+    u8g2.drawStr(2, 53, buf);
+
+    snprintf(buf, sizeof(buf), "CRC err %d", crc_errors);
+    u8g2.drawStr(2, 63, buf);
+}
+
+void Display::drawBeats(const char* status, double q, double hr_bpm, int usable_beats,
+                        int longest_run, double usable_s, double scored_s, int crc_errors)
+{
+    u8g2.clearBuffer();
+    char buf[32];
+
+    u8g2.setFont(u8g2_font_6x13_tr);
+    u8g2.drawStr(2, 12, status);
+    snprintf(buf, sizeof(buf), "Q %3d%%", static_cast<int>(q * 100 + 0.5));
+    u8g2.drawStr(86, 12, buf);
+
+    u8g2.drawFrame(0, 16, 128, 7);
+    u8g2.drawBox(1, 17, static_cast<int>(std::min(1.0, std::max(0.0, q)) * 126), 5);
+
+    u8g2.setFont(u8g2_font_5x7_tf);
+    if (hr_bpm > 0) snprintf(buf, sizeof(buf), "HR %3d  Run %3d beats", static_cast<int>(hr_bpm + 0.5), longest_run);
+    else            snprintf(buf, sizeof(buf), "HR  --  Run %3d beats", longest_run);
+    u8g2.drawStr(2, 33, buf);
+
+    snprintf(buf, sizeof(buf), "Usable beats %5d", usable_beats);
+    u8g2.drawStr(2, 43, buf);
+
+    snprintf(buf, sizeof(buf), "Cover %3d%%  %4.0f/%4.0fs",
+             scored_s > 0 ? static_cast<int>(100 * usable_s / scored_s + 0.5) : 0, usable_s, scored_s);
+    u8g2.drawStr(2, 53, buf);
+
+    snprintf(buf, sizeof(buf), "CRC err %d   NPU", crc_errors);
+    u8g2.drawStr(2, 63, buf);
+}
+
 void Display::flush()
 {
     u8g2.sendBuffer();

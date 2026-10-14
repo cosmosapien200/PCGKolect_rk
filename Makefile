@@ -10,7 +10,7 @@ ADB := adb
 REMOTE_DIR := /root
 REMOTE_BIN := $(REMOTE_DIR)/$(PROJECT)
 
-.PHONY: init build clean rebuild connect adb-connect upload run shell dev
+.PHONY: init build clean rebuild connect adb-connect upload upload-model deploy pull-recordings run shell dev
 
 init:
 	cmake -B $(BUILD_DIR) \
@@ -39,6 +39,19 @@ adb-connect:
 upload:
 	$(ADB) push $(BUILD_DIR)/$(PROJECT) $(REMOTE_BIN)
 	$(ADB) shell chmod +x $(REMOTE_BIN)
+
+# Upload the NPU segmentation-quality model (built by PCGKolect_model/seg/convert_rknn.py)
+MODEL ?= ../PCGKolect_model/release/segnet_w8a8_normal.rknn
+upload-model:
+	$(ADB) push $(MODEL) $(REMOTE_DIR)/segnet.rknn
+
+# Firmware + NPU model in one go
+deploy: build upload upload-model
+
+# Copy session recordings (WAV + beats/quality CSV) from the board to ./recordings/
+pull-recordings:
+	mkdir -p recordings
+	$(ADB) pull $(REMOTE_DIR)/recordings/. recordings/
 
 # Execute the firmware on the target
 run:

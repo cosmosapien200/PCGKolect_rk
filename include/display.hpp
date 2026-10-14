@@ -21,6 +21,14 @@ public:
     void drawStatus(int frames_ok, int crc_errors, int bytes_read,
                     int buffer_available, int crc_rate);
 
+    /// Draw the live signal-quality screen (latest 1 s result + session totals).
+    void drawQuality(double q, const char* verdict, const char* reason, double hr_bpm,
+                     double good_s, double scored_s, double usable_beats, int crc_errors);
+
+    /// Draw the beat-level (NPU segmentation) quality screen.
+    void drawBeats(const char* status, double q, double hr_bpm, int usable_beats,
+                   int longest_run, double usable_s, double scored_s, int crc_errors);
+
     /// Flush the frame buffer to the display.
     void flush();
 

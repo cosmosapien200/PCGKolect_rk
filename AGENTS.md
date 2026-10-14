@@ -63,6 +63,8 @@
 ├── include/
 │   ├── pcg_stream.hpp            UART frame parser + ring buffer
 │   ├── pcg_preprocessor.hpp      Audio filter chain (DC-block, bandpass, normalize)
+│   ├── signal_quality.hpp        Real-time quality score + session tracker
+│   ├── sqi_model_params.h        GENERATED model constants (PCGKolect_model/train.py)
 │   ├── system_info.hpp           Board info display
 │   └── display.hpp               SSD1306 I2C display wrapper
 │
@@ -70,6 +72,7 @@
 │   ├── main.cpp                      Main loop: wire stream + preprocessor + display
 │   ├── pcg_stream.cpp                UART reader, frame parser, CRC16, ring buffer
 │   ├── pcg_preprocessor.cpp          Biquad filters, DC blocker, RMS normalize
+│   ├── signal_quality.cpp            SQI features, LR scoring, gates, QualityTracker
 │   ├── system_info.cpp               Print system info on boot
 │   ├── display.cpp                   SSD1306 driver (u8g2-linux wrapper)
 │   └── test_audio_record.cpp         Test: record 5s audio → WAV (remove later)
@@ -227,6 +230,39 @@ std::vector<float> proc(800);
 pre.process(raw.data(), proc.data(), 800);
 // proc[] is AI-ready float audio
 ```
+
+### `SegModel` + `SegQuality` — NPU Beat-Level Quality (v2, primary)
+
+**Files:** `include/seg_model.hpp`, `src/seg_model.cpp`, `include/seg_quality.hpp`, `src/seg_quality.cpp`, `include/seg_params.h` (GENERATED), `lib/rknn/`
+
+The NPU segmentation net (S1/systole/S2/diastole/noise per 20 ms) is followed by a CPU Viterbi that produces per-beat usable/unusable decisions. Model: `/root/segnet.rknn` (`make upload-model`). Training, evaluation and the export path are in `../PCGKolect_model/seg/` (README has the results).
+
+- RV1103 zero-copy gotchas:
+  - Input is native NC1HWC2 with `pass_through=1`.
+  - The NHWC output is dense, and `size_with_stride` is padding.
+- Verify a new model on the board with `tools/npu_selftest` and `tools/pcg_replay` (driven by `seg/check_board.py`)
+- Review sessions: `make pull-recordings`, then `python tools/view_in_audacity.py` (menu, or `-s NNN`) opens Audacity with the beat and quality label tracks
+- Any change to the front-end or decoder must be mirrored in `seg/model.py` / `seg/decode.py` / `seg/stream.py`, and `tests/test_seg_parity.py` must then pass
+
+### `SignalQuality` — Real-Time Recording-Quality Estimation (v1: gates + fallback)
+
+**Files:** `include/signal_quality.hpp`, `src/signal_quality.cpp`, `include/sqi_model_params.h` (GENERATED)
+
+Scores raw 8 kHz PCM once per second: q ∈ [0,1], verdict `GOOD`/`MARGINAL`/`BAD`, reason
+(`OK`, `NOISY`, `NO_CONTACT`, `TOO_LOUD`, `CLIPPING`), level, clip fraction and rough HR. `QualityTracker`
+aggregates the results into usable seconds, usable ratio, usable beats and the longest clean run.
+
+```cpp
+SignalQuality sq; QualityTracker tr;
+std::vector<SignalQuality::Result> res;
+sq.push(raw.data(), n, res);          // raw int16 from PcgStream, NOT preprocessed
+for (auto& r : res) tr.add(r);
+```
+
+- Model, training and research: `../PCGKolect_model/` (README has the evaluation)
+- Never edit `sqi_model_params.h`; regenerate it with `python train.py` there
+- Any change to the feature code must be mirrored in `PCGKolect_model/sqi_features.py`. `tests/test_parity.py` must then print `PARITY PASS`
+- Do not add `-ffast-math`
 
 ### `Display` — SSD1306 I2C Driver (u8g2-linux)
 

@@ -14,6 +14,10 @@ add_executable(
     src/pcg_stream.cpp
     src/pcg_preprocessor.cpp
     src/display.cpp
+    src/signal_quality.cpp
+    src/seg_model.cpp
+    src/seg_quality.cpp
+    src/session_recorder.cpp
 )
 
 # --- u8g2 library sources ---
@@ -49,8 +53,23 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__ARM_LINUX__ -DPERIPHERY_GPIO_CDEV_SU
 # Garbage collect unused functions/sections to shrink binary
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
 
+# --- RKNN runtime (RV1103 NPU): header v2.3.2 from airockchip/rknn-toolkit2, lib pulled from the board ---
+set(RKNN_PATH "${CMAKE_SOURCE_DIR}/lib/rknn")
+target_include_directories(${PROJECT_NAME} PRIVATE ${RKNN_PATH}/include)
+
 target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE
         pthread
+        ${RKNN_PATH}/armhf-uclibc/librknnmrt.so
 )
+
+# NPU self-test (board-side numerics check of the exported model)
+add_executable(npu_selftest tools/npu_selftest.cpp src/seg_model.cpp)
+target_include_directories(npu_selftest PRIVATE include ${RKNN_PATH}/include)
+target_link_libraries(npu_selftest PRIVATE ${RKNN_PATH}/armhf-uclibc/librknnmrt.so)
+
+# Board-side replay of recordings through the full v2 pipeline
+add_executable(pcg_replay tools/pcg_replay.cpp src/seg_model.cpp src/seg_quality.cpp src/signal_quality.cpp)
+target_include_directories(pcg_replay PRIVATE include ${RKNN_PATH}/include)
+target_link_libraries(pcg_replay PRIVATE ${RKNN_PATH}/armhf-uclibc/librknnmrt.so)
