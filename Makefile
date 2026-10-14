@@ -10,7 +10,7 @@ ADB := adb
 REMOTE_DIR := /root
 REMOTE_BIN := $(REMOTE_DIR)/$(PROJECT)
 
-.PHONY: init build clean rebuild connect adb-connect upload upload-model deploy pull-recordings run shell dev
+.PHONY: init build clean rebuild connect adb-connect upload upload-model deploy pull-recordings run shell dev install-service restart
 
 init:
 	cmake -B $(BUILD_DIR) \
@@ -63,3 +63,12 @@ shell:
 
 # Build, upload, and execute
 dev: build upload run
+
+# Install the boot script so the firmware starts on power-up (stop/start with /etc/init.d/S99pcgkolect)
+install-service:
+	$(ADB) push deploy/S99pcgkolect /etc/init.d/S99pcgkolect
+	$(ADB) shell chmod +x /etc/init.d/S99pcgkolect
+
+# Restart the firmware on the board after an upload
+restart:
+	$(ADB) shell /etc/init.d/S99pcgkolect restart

@@ -37,6 +37,10 @@ public:
     void start();
     void stop();
 
+    // Run one request synchronously on the calling thread (local test FIFO).
+    // Returns the JSON response ("" for ops that answer with CHUNK frames).
+    std::string handleLocal(const std::string& json);
+
     // Emit an EVT frame (JSON object, not consumed).
     void sendEvent(const cJSON* evt);
 
@@ -52,6 +56,8 @@ public:
 private:
     void enqueue(const uint8_t* data, size_t len);
     void worker();
+    // Parse + dispatch one request; returns the response text or "" (no JSON reply).
+    std::string process(const std::string& msg, bool use_cache);
     void reply(uint32_t id, const std::string& txt);
 
     struct Entry { Handler h; bool cache; };
@@ -60,6 +66,7 @@ private:
     std::map<std::string, Entry> handlers_;
     std::deque<std::string> queue_;
     std::mutex mu_;
+    std::mutex local_mu_;
     std::condition_variable cv_;
     std::thread thread_;
     bool running_ = false;

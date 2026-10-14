@@ -142,6 +142,49 @@ void Display::drawBeats(const char* status, double q, double hr_bpm, int usable_
     u8g2.drawStr(2, 63, buf);
 }
 
+void Display::drawSession(const char* word, int q, double usable_s, double req_s, double progress,
+                          const char* tag)
+{
+    u8g2.clearBuffer();
+    char buf[32];
+
+    // Left: vertical quality bar, 8 px wide, filled from the bottom.
+    const int bx = 0, by = 0, bw = 8, bh = 64;
+    u8g2.drawFrame(bx, by, bw, bh);
+    if (q >= 0) {
+        const int fill = (std::min(100, q) * (bh - 2)) / 100;
+        u8g2.drawBox(bx + 1, by + bh - 1 - fill, bw - 2, fill);
+    } else {
+        for (int y = by + 2; y < by + bh - 1; y += 4)      // hatched = no measurement
+            u8g2.drawLine(bx + 1, y + 2, bx + bw - 2, y);
+    }
+
+    // Tiny indicator, top right.
+    if (tag && *tag) {
+        u8g2.setFont(u8g2_font_5x7_tf);
+        u8g2.drawStr(128 - u8g2.getStrWidth(tag), 7, tag);
+    }
+
+    // Status word, large and centred in the area right of the bar.
+    u8g2.setFont(u8g2_font_logisoso24_tr);
+    const int area_x = 12, area_w = 116;
+    int w = u8g2.getStrWidth(word);
+    u8g2.drawStr(area_x + std::max(0, (area_w - w) / 2), 34, word);
+
+    // Collected usable time / needed time.
+    u8g2.setFont(u8g2_font_6x13_tr);
+    if (req_s > 0) snprintf(buf, sizeof(buf), "%.1f/%.0fs", usable_s, req_s);
+    else           snprintf(buf, sizeof(buf), "%.1fs", usable_s);
+    w = u8g2.getStrWidth(buf);
+    u8g2.drawStr(area_x + std::max(0, (area_w - w) / 2), 50, buf);
+
+    // Bottom: progress toward the usable-time target.
+    const int px = 12, py = 56, pw = 116, ph = 8;
+    u8g2.drawFrame(px, py, pw, ph);
+    const int pf = static_cast<int>(std::min(1.0, std::max(0.0, progress)) * (pw - 2));
+    if (pf > 0) u8g2.drawBox(px + 1, py + 1, pf, ph - 2);
+}
+
 void Display::flush()
 {
     u8g2.sendBuffer();

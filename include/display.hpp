@@ -29,6 +29,11 @@ public:
     void drawBeats(const char* status, double q, double hr_bpm, int usable_beats,
                    int longest_run, double usable_s, double scored_s, int crc_errors);
 
+    /// Session screen (spec 03 §6): left vertical quality bar (q 0-100, <0 = unknown,
+    /// drawn hatched), big status word, "<usable>/<needed>s", bottom progress bar.
+    /// `tag` is a tiny top-right indicator (e.g. "REC", "ARM", "NPU!"), may be empty.
+    void drawSession(const char* word, int q, double usable_s, double req_s, double progress, const char* tag);
+
     /// Flush the frame buffer to the display.
     void flush();
 

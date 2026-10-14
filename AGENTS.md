@@ -2,25 +2,22 @@
 
 ## 📋 Project Overview
 
-**PCGKolect RV1103** is the receiver/processor side of the PCG (phonocardiogram) data collection platform. It runs on a **Luckfox Pico (RV1103)** board and receives streaming heart sound audio from an **ESP32-S3** over UART. The firmware parses, buffers, and preprocesses the audio for AI inference on the RV1103's NPU.
+**PCGKolect RV1103** is the quality-processing and recording controller of the PCG (phonocardiogram) data collection platform. It runs on a **Luckfox Pico Mini (RV1103)**, receives 8 kHz audio from the **ESP32-S3** over UART, runs the NPU segmentation model, owns the recording session state machine, stores recordings with quality sidecars, serves them to the ESP32 for Wi-Fi transfer to the phone app, and drives the OLED.
 
 ```
-┌──────────────┐    UART3     ┌──────────────────────────┐
-│  ESP32-S3    │  460800 baud │  Luckfox Pico (RV1103)   │
-│  PCM1803A ADC│ ◄───────────►│                          │
-│  48 kHz → 8k │  16-bit mono │  PcgStream               │
-│  framed PCM  │  8N1, 10fps  │    Frame parse + CRC     │
-└──────────────┘               │    Ring buffer           │
-                               │          │               │
-                               │          ▼               │
-                               │  PcgPreprocessor         │
-                               │    DC-block → bandpass   │
-                               │          │               │
-                               │          ▼               │
-                               │  NPU inference (future)  │
-                                │  SSD1306 Display         │
-                               └──────────────────────────┘
+┌──────────────┐  UART3 4 Mbaud (typed frames)  ┌────────────────────────────────────┐
+│  ESP32-S3    │  audio A5 5A ───────────────►  │  PcgStream (link endpoint)         │
+│  BLE + Wi-Fi │  REQ  A5 5C ───────────────►   │   audio ring (abs index, gap fill) │
+│  HTTP proxy  │  ◄─────────── RSP/EVT/CHUNK    │   ControlServer ─ SessionEngine    │
+└──────────────┘                                 │                 └ FileService      │
+                                                 │  SegQuality (NPU) → beats → engine │
+                                                 │  RecordingStore /root/recordings   │
+                                                 │  Display: WIP/DONE screen          │
+                                                 └────────────────────────────────────┘
 ```
+
+Wire protocols (link, control JSON, file formats) are specified in
+`../PCGKolect_app/docs/PROTOCOL.md`; the integration plan is `../PCGKolect_app/docs/PLAN.md`.
 
 ---
 
@@ -30,9 +27,9 @@
 
 | Component | Detail |
 |-----------|--------|
-| Board | Luckfox Pico (RV1103, Arm Cortex-A7, NPU) |
+| Board | Luckfox Pico Mini (RV1103, Arm Cortex-A7, NPU, ~33 MB RAM for Linux) |
 | UART Port | `/dev/ttyS3` (UART3) |
-| Baud Rate | **460800** (8N1, no flow control) |
+| Baud Rate | boots at **460800**, ESP negotiates **4 000 000** (8N1, no flow control) |
 | Audio Source | ESP32-S3 streaming framed 8 kHz/16-bit PCM |
 
 ### Software Stack
@@ -61,24 +58,33 @@
 │   └── rv1103-toolchain.cmake    Cross-compile toolchain config
 │
 ├── include/
-│   ├── pcg_stream.hpp            UART frame parser + ring buffer
-│   ├── pcg_preprocessor.hpp      Audio filter chain (DC-block, bandpass, normalize)
-│   ├── signal_quality.hpp        Real-time quality score + session tracker
+│   ├── pcg_stream.hpp            UART link endpoint: audio + message frames, ring, gaps
+│   ├── control_server.hpp        JSON request queue/worker, response cache
+│   ├── file_service.hpp          open/read/close of recording files (CHUNK replies)
+│   ├── session_engine.hpp        Recording state machine, policy, sidecars, telemetry
+│   ├── recording_store.hpp       On-disk recordings, manifest, ack/delete/clear
+│   ├── policy.hpp                Dataset settings + validation
+│   ├── sha256.hpp                File hashes
+│   ├── seg_model.hpp / seg_quality.hpp   NPU model + Viterbi beats (v2)
+│   ├── signal_quality.hpp        v1 SQI (kept for tools/tests; not used by the firmware)
 │   ├── sqi_model_params.h        GENERATED model constants (PCGKolect_model/train.py)
 │   ├── system_info.hpp           Board info display
 │   └── display.hpp               SSD1306 I2C display wrapper
 │
 ├── src/
-│   ├── main.cpp                      Main loop: wire stream + preprocessor + display
-│   ├── pcg_stream.cpp                UART reader, frame parser, CRC16, ring buffer
-│   ├── pcg_preprocessor.cpp          Biquad filters, DC blocker, RMS normalize
-│   ├── signal_quality.cpp            SQI features, LR scoring, gates, QualityTracker
+│   ├── main.cpp                      Main loop: link → NPU → session engine → OLED
+│   ├── pcg_stream.cpp                UART link endpoint
+│   ├── control_server.cpp / file_service.cpp / session_engine.cpp / recording_store.cpp
+│   ├── seg_model.cpp / seg_quality.cpp   NPU inference + decoder
+│   ├── signal_quality.cpp            v1 SQI (tools/tests only)
 │   ├── system_info.cpp               Print system info on boot
 │   ├── display.cpp                   SSD1306 driver (u8g2-linux wrapper)
-│   └── test_audio_record.cpp         Test: record 5s audio → WAV (remove later)
 │
+├── deploy/S99pcgkolect           Boot script (`make install-service`)
 ├── lib/
-│   └── u8g2/                         u8g2-linux graphics library (static, 298 files)
+│   ├── u8g2/                         u8g2-linux graphics library (static, 298 files)
+│   ├── cjson/                        cJSON 1.7.18 (MIT)
+│   └── rknn/                         RKNN runtime header + librknnmrt.so
 │
 ├── docs/
 │   ├── uart_pcg_communication.md     Full UART protocol spec + API docs
@@ -121,13 +127,12 @@ make run           # Execute on RV1103
 make shell         # Drop into ADB shell
 ```
 
-### Test Targets
+### Board service
 
 ```bash
-make test          # Build + upload + run test_audio_record (5s WAV capture)
-make test-build    # Build only the test binary
-make test-upload   # Upload test binary
-make test-run      # Run test on board
+make install-service   # once: /etc/init.d/S99pcgkolect starts the firmware at boot
+make upload restart    # deploy a new build and restart it
+make upload-model      # push the RKNN model (../PCGKolect_model/release/)
 ```
 
 ### Clean
@@ -176,60 +181,40 @@ Audio is sent in **framed packets** at ~10 frames/second. Full spec in [`docs/ua
 
 ## 🧩 Core Modules
 
-### `PcgStream` — UART Frame Parser + Ring Buffer
+### `PcgStream` — UART Link Endpoint
 
 **Files:** `include/pcg_stream.hpp`, `src/pcg_stream.cpp`
 
-Background thread reads `/dev/ttyS3`, parses frames (sync → CRC), and pushes decoded PCM into a ring buffer. Consumers call `read()` to pull samples — never blocks on UART timing.
+Background thread reads `/dev/ttyS3` and parses both frame kinds. Audio goes into a ring buffer
+with an **absolute sample index** (`read(..., &start_abs)`); a SEQ gap of ≤ 20 frames is
+zero-filled so the time axis stays true, and every gap/overrun/discontinuity is reported by
+`takeGaps()`. Message frames go to the `ControlServer`. `sendMsg()`/`sendChunk()` write whole
+frames under a TX mutex. Baud changes on request (`baud` op, 2 s revert) and falls back to
+460800 after 3 s of silence (ESP reboot).
 
-```cpp
-#include "pcg_stream.hpp"
+### `ControlServer` + `FileService` — Control Plane
 
-PcgStream stream;
-PcgStream::Config cfg;
-cfg.device = "/dev/ttyS3";
-cfg.baud   = 460800;
-cfg.ring_samples = 32000;   // ~4s @ 8kHz
+Requests are queued by the reader thread and handled on a worker thread; the last 16 responses
+are cached by id and replayed for retries, so every op runs once. `FileService` serves
+`open`/`read`/`close` (≤ 4 handles, LRU) with 4 KB CHUNK frames.
 
-if (!stream.open(cfg)) return 1;
-
-std::vector<int16_t> buf(800);
-size_t n = stream.read(buf.data(), buf.size(), 200);  // timeout 200ms
-auto stats = stream.stats();  // frames_ok, crc_errors, bytes_read
+For on-board testing without the ESP, write JSON to the control FIFO:
+```bash
+adb shell 'echo "{\"v\":1,\"id\":1,\"op\":\"status\"}" > /tmp/pcg_ctrl.in; cat /tmp/pcg_ctrl.out'
 ```
+`PCG_REPLAY=/tmp/x.raw PCG_RECORD_DIR=/tmp/rectest ./RVFirmware` runs the whole pipeline on a
+recording (real-time pace) — set_dataset/prepare through the FIFO to test sessions.
 
-**Key design decisions:**
-- Ring buffer drops oldest samples on overflow (bounded memory, no growth)
-- Parser auto-resyncs on CRC failure or malformed length
-- PCM copied via explicit byte-by-byte LE conversion (alignment-safe, no `reinterpret_cast`)
+### `SessionEngine` + `RecordingStore` — Recordings
 
-### `PcgPreprocessor` — Audio Filter Chain
-
-**Files:** `include/pcg_preprocessor.hpp`, `src/pcg_preprocessor.cpp`
-
-Converts `int16` PCM to `float` [-1, 1] and applies a fixed filter chain:
-
-1. **int16 → float** (`x / 32768.0f`)
-2. **DC blocker** — 1-pole high-pass at 1 Hz
-3. **Low-pass** — 2nd-order Butterworth at 500 Hz
-4. **High-pass** — 2nd-order Butterworth at 20 Hz
-5. **RMS normalize** — scales to `target_rms` (0.5)
-
-```cpp
-#include "pcg_preprocessor.hpp"
-
-PcgPreprocessor::Config pcfg;
-pcfg.sample_rate = 8000;
-pcfg.low_hz = 20.0f;
-pcfg.high_hz = 500.0f;
-pcfg.normalize = true;
-
-PcgPreprocessor pre(pcfg);
-std::vector<int16_t> raw(800);
-std::vector<float> proc(800);
-pre.process(raw.data(), proc.data(), 800);
-// proc[] is AI-ready float audio
-```
+States `IDLE → CONFIGURED → ARMED → RECORDING → FINALIZING → DONE | INCOMPLETE`
+(+ `CANCELLED`, `INTERRUPTED`, `STORAGE_FULL`, `MODEL_ERROR`). A beat is usable when
+conf ≥ `conf_threshold` (dataset setting, default 0.80), duration valid and (optionally) rhythm
+check passed; clipping never rejects. Auto-start after `autostart_s` of contiguous usable beats
+(a 16 s pre-trigger ring keeps that audio); `force_start` skips only the wait. Files go to
+`/root/recordings/.partial/<rid>/` and are renamed into place after fsync; a crash leaves a
+partial that is recovered as `interrupted` at the next start. Deletion requires a prior `ack`
+with the matching audio SHA-256; `clear` with `force` needs `/root/pcg_state/allow_force_clear`.
 
 ### `SegModel` + `SegQuality` — NPU Beat-Level Quality (v2, primary)
 
@@ -244,25 +229,12 @@ The NPU segmentation net (S1/systole/S2/diastole/noise per 20 ms) is followed by
 - Review sessions: `make pull-recordings`, then `python tools/view_in_audacity.py` (menu, or `-s NNN`) opens Audacity with the beat and quality label tracks
 - Any change to the front-end or decoder must be mirrored in `seg/model.py` / `seg/decode.py` / `seg/stream.py`, and `tests/test_seg_parity.py` must then pass
 
-### `SignalQuality` — Real-Time Recording-Quality Estimation (v1: gates + fallback)
+### `SignalQuality` — v1 SQI (not used by the firmware)
 
 **Files:** `include/signal_quality.hpp`, `src/signal_quality.cpp`, `include/sqi_model_params.h` (GENERATED)
 
-Scores raw 8 kHz PCM once per second: q ∈ [0,1], verdict `GOOD`/`MARGINAL`/`BAD`, reason
-(`OK`, `NOISY`, `NO_CONTACT`, `TOO_LOUD`, `CLIPPING`), level, clip fraction and rough HR. `QualityTracker`
-aggregates the results into usable seconds, usable ratio, usable beats and the longest clean run.
-
-```cpp
-SignalQuality sq; QualityTracker tr;
-std::vector<SignalQuality::Result> res;
-sq.push(raw.data(), n, res);          // raw int16 from PcgStream, NOT preprocessed
-for (auto& r : res) tr.add(r);
-```
-
-- Model, training and research: `../PCGKolect_model/` (README has the evaluation)
-- Never edit `sqi_model_params.h`; regenerate it with `python train.py` there
-- Any change to the feature code must be mirrored in `PCGKolect_model/sqi_features.py`. `tests/test_parity.py` must then print `PARITY PASS`
-- Do not add `-ffast-math`
+Kept for `tools/pcg_replay` and the parity test. The firmware no longer uses v1 scores or gates
+(user decision 2026-10-14: usability is defined only by the v2 beat confidence threshold).
 
 ### `Display` — SSD1306 I2C Driver (u8g2-linux)
 
@@ -279,8 +251,7 @@ cfg.i2c_addr = 0x78;  // 0x3C << 1
 Display disp(cfg);
 
 if (disp.init()) {
-    disp.drawStatus(frames_ok, crc_errors, bytes_read,
-                    stream.available(), crc_rate);
+    disp.drawSession("WIP", q, usable_s, req_s, progress, "REC");
     disp.flush();
 }
 ```
@@ -376,20 +347,17 @@ The parser consumes **both** sync bytes (`0xA5 0x5A`). After `0xA5` it requires 
 
 If the consumer falls behind, the oldest samples are dropped. This is intentional — bounded memory, no growth. Monitor `available()` to detect backpressure.
 
-### 4. Preprocessor State
+### 4. Memory Budget
 
-`PcgPreprocessor` maintains IIR filter state across `process()` calls. Input must be **contiguous** — do not reset between chunks unless intentionally starting a new recording.
+Linux sees ~33 MB on the Pico Mini (~18 MB available). Firmware RSS ≈ 3–4 MB:
+- Link ring: 64 000 × 2 B = 128 KB; pre-trigger ring: 128 000 × 2 B = 256 KB
+- Frame buffers ~4 KB each; per-session beat/score vectors grow ~50 KB per 30 min
 
-### 5. Memory Budget
+### 5. Running on the board
 
-RV1103 has limited RAM. Current footprint:
-- Ring buffer: 32,000 × 2 bytes = 64 KB
-- Frame buffer: 4,096 bytes
-- Stack: minimal (no large local arrays)
-
-### 6. Test Files
-
-`src/test_audio_record.cpp` is a temporary test file. It is a separate CMake target and can be removed without affecting the main firmware. The `recordings/` directory is git-ignored.
+Start detached (`setsid` or the init script): the firmware handles SIGHUP, so `nohup` does not
+keep it alive when the adb shell closes. stdout is line-buffered; log at `/tmp/rv.log`.
+`SIGTERM` finalises an active recording as `incomplete`.
 
 ### 7. Display (SSD1306)
 
@@ -402,22 +370,19 @@ RV1103 has limited RAM. Current footprint:
 
 ### 8. ESP32 Side
 
-The companion ESP32 firmware lives in [`PCGKolect/PCGKolect/`](../PCGKolect/). Its agent guide is in [`agents.md`](../PCGKolect/agents.md). The UART link (GPIO 17/18, 460800 baud) must be kept in sync with the protocol spec in [`docs/uart_pcg_communication.md`](docs/uart_pcg_communication.md).
+The companion ESP32 firmware lives in [`PCGKolect/PCGKolect/`](../PCGKolect/). Its agent guide is in [`agents.md`](../PCGKolect/agents.md). The UART link (GPIO 17/18) must stay in sync with `../PCGKolect_app/docs/PROTOCOL.md`; the ESP debug console (`pcg-fw/tools/esp_console.py`) can send any control request over the link.
 
 ---
 
 ## 🧪 Testing
 
-### End-to-End Audio Test
+### Session test without the app
+
+On the board (replay of a recording, sessions driven through the control FIFO — see
+`ControlServer` above), or live through the ESP console from the PC:
 
 ```bash
-make test
-```
-
-Records 5 seconds of audio from the PCG stream and saves `/root/recordings/recording.wav` on the RV1103. Pull it back:
-
-```bash
-adb pull /root/recordings/recording.wav ./recordings/
+python ../PCGKolect/pcg-fw/tools/esp_console.py 'req {"op":"status"}' 'fetch <rid> audio'
 ```
 
 ### Diagnostics
@@ -429,15 +394,15 @@ adb shell cat /proc/tty/driver/serial
 # Is UART3 present?
 adb shell ls -l /dev/ttyS3
 
-# Check live stats from running firmware
-# (firmware prints frames_ok, crc_errors, bytes_read every 2s)
+# Live link + session stats from the running firmware (every 10 s in /tmp/rv.log)
+adb shell tail /tmp/rv.log
 ```
 
 ### Symptom Table
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
-| `bytes_read` grows, `frames_ok == 0` | Wrong baud / wrong protocol | Set sender to **460800 8N1** |
+| `bytes_read` grows, `frames_ok == 0` | Baud mismatch | Wait 3 s (both sides fall back to 460800 and renegotiate) |
 | `bytes_read` stays 0 | Sender idle, wrong wiring | Check TX↔RX crossover, UART3 pinmux |
 | `crc_errors` climbing | Noise, baud drift | Verify baud on both ends |
 | `available()` always 0 | Consumer too fast, ring empty | Normal — just wait for data |
@@ -459,4 +424,4 @@ adb shell ls -l /dev/ttyS3
 
 ---
 
-*Last updated: 2026-10-13*
+*Last updated: 2026-10-14*

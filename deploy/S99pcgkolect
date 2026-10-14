@@ -1,0 +1,29 @@
+#!/bin/sh
+# Starts the PCGKolect RV1103 firmware at boot (installed to /etc/init.d by `make install-service`).
+DAEMON=/root/RVFirmware
+PIDFILE=/var/run/pcgkolect.pid
+LOG=/tmp/rv.log
+
+case "$1" in
+  start)
+    printf "Starting PCGKolect: "
+    start-stop-daemon -S -b -m -p $PIDFILE -x /bin/sh -- -c "cd /root && exec $DAEMON > $LOG 2>&1"
+    echo "OK"
+    ;;
+  stop)
+    printf "Stopping PCGKolect: "
+    start-stop-daemon -K -p $PIDFILE -s TERM
+    # give the firmware time to finalise an active recording
+    for i in 1 2 3 4 5 6 7 8 9 10; do pidof RVFirmware >/dev/null || break; sleep 1; done
+    rm -f $PIDFILE
+    echo "OK"
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+esac
+exit 0

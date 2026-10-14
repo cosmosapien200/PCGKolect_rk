@@ -86,61 +86,67 @@ void ControlServer::worker() {
             queue_.pop_front();
         }
         requests_++;
-
-        cJSON* req = cJSON_ParseWithLength(msg.data(), msg.size());
-        if (!req) continue;     // undecodable: no id to answer
-        const uint32_t id = static_cast<uint32_t>(num(req, "id", 0));
-        const char* op = str(req, "op", "");
-
-        // Retried request whose answer we already sent: replay it.
-        bool replayed = false;
-        for (const auto& e : cache_) {
-            if (e.first == id && id != 0) {
-                reply(id, e.second);
-                replayed = true;
-                break;
-            }
-        }
-        if (replayed) {
-            cJSON_Delete(req);
-            continue;
-        }
-
-        cJSON* rsp = cJSON_CreateObject();
-        cJSON_AddNumberToObject(rsp, "v", 1);
-        cJSON_AddNumberToObject(rsp, "id", id);
-        cJSON_AddStringToObject(rsp, "st", "OK");
-        Ctx ctx{req, id, rsp};
-
-        auto it = handlers_.find(op);
-        bool cache = true;
-        if (num(req, "v", 0) != 1) {
-            reject(ctx, "UNSUPPORTED", "CTRL_PROTO");
-        } else if (it == handlers_.end()) {
-            reject(ctx, "UNSUPPORTED", "UNKNOWN_OP");
-        } else {
-            cache = it->second.cache;
-            try {
-                it->second.h(ctx);
-            } catch (const std::exception& e) {
-                std::cerr << "[ctrl] op " << op << " failed: " << e.what() << std::endl;
-                reject(ctx, "ERROR", "INTERNAL");
-            }
-        }
-
-        if (!ctx.no_reply) {
-            char* t = cJSON_PrintUnformatted(rsp);
-            if (t) {
-                std::string txt(t);
-                cJSON_free(t);
-                if (cache && id != 0) {
-                    cache_.emplace_back(id, txt);
-                    if (cache_.size() > kCacheMax) cache_.pop_front();
-                }
-                reply(id, txt);
-            }
-        }
-        cJSON_Delete(rsp);
-        cJSON_Delete(req);
+        const std::string out = process(msg, true);
+        if (!out.empty()) reply(0, out);
     }
+}
+
+std::string ControlServer::handleLocal(const std::string& json) {
+    std::lock_guard<std::mutex> l(local_mu_);
+    return process(json, false);
+}
+
+std::string ControlServer::process(const std::string& msg, bool use_cache) {
+    cJSON* req = cJSON_ParseWithLength(msg.data(), msg.size());
+    if (!req) return "";     // undecodable: no id to answer
+    const uint32_t id = static_cast<uint32_t>(num(req, "id", 0));
+    const char* op = str(req, "op", "");
+
+    // Retried request whose answer we already sent: replay it.
+    if (use_cache && id != 0) {
+        for (const auto& e : cache_) {
+            if (e.first == id) {
+                cJSON_Delete(req);
+                return e.second;
+            }
+        }
+    }
+
+    cJSON* rsp = cJSON_CreateObject();
+    cJSON_AddNumberToObject(rsp, "v", 1);
+    cJSON_AddNumberToObject(rsp, "id", id);
+    cJSON_AddStringToObject(rsp, "st", "OK");
+    Ctx ctx{req, id, rsp};
+
+    auto it = handlers_.find(op);
+    bool cache = true;
+    if (num(req, "v", 0) != 1) {
+        reject(ctx, "UNSUPPORTED", "CTRL_PROTO");
+    } else if (it == handlers_.end()) {
+        reject(ctx, "UNSUPPORTED", "UNKNOWN_OP");
+    } else {
+        cache = it->second.cache;
+        try {
+            it->second.h(ctx);
+        } catch (const std::exception& e) {
+            std::cerr << "[ctrl] op " << op << " failed: " << e.what() << std::endl;
+            reject(ctx, "ERROR", "INTERNAL");
+        }
+    }
+
+    std::string txt;
+    if (!ctx.no_reply) {
+        char* t = cJSON_PrintUnformatted(rsp);
+        if (t) {
+            txt = t;
+            cJSON_free(t);
+            if (use_cache && cache && id != 0) {
+                cache_.emplace_back(id, txt);
+                if (cache_.size() > kCacheMax) cache_.pop_front();
+            }
+        }
+    }
+    cJSON_Delete(rsp);
+    cJSON_Delete(req);
+    return txt;
 }

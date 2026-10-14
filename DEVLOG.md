@@ -376,3 +376,38 @@ with the unchanged audio frames on the same duplex UART. Spec:
   look frozen during debugging.
 * Start detached with `setsid`: the firmware's SIGHUP handler overrides
   `nohup`, so it exited when the adb shell closed.
+
+---
+
+## 2026-10-14 — Session engine: app-driven recordings (CP2)
+
+### Milestone
+- `SessionEngine`: authoritative state machine `IDLE → CONFIGURED → ARMED → RECORDING →
+  FINALIZING → DONE | INCOMPLETE` (+ CANCELLED, INTERRUPTED, STORAGE_FULL, MODEL_ERROR),
+  driven by control ops `set_dataset`, `prepare`, `force_start`, `stop`, `cancel`.
+- Usability is one user knob: beat conf ≥ `conf_threshold` (default 0.80) + valid duration +
+  optional rhythm check. v1 scores, CLEAN/NOISE and the clipping gate no longer decide anything
+  (clipping is recorded as `clipping_ratio` only).
+- Auto-start after `autostart_s` of contiguous usable-beat coverage; a 16 s pre-trigger ring
+  keeps the qualifying audio so the recording starts at the first qualifying beat.
+- `RecordingStore`: `/root/recordings/<rid>/{audio.wav,beats.csv,quality.csv,meta.json}`,
+  written in `.partial/<rid>`, fsync'd and renamed into place; `files.json` hashes and durable
+  `transfer.json`; `manifest` paging (6 items fit a 4 KB frame), `ack` (hash-checked),
+  `delete` (only verified), `clear` (force needs a device-side flag file).
+- Crash recovery: partial sessions become `interrupted` recordings at the next start.
+- `stats` op: uptime, RAM, CPU % (from /proc/stat between calls), temperature, storage and
+  approximate remaining recording time, UART counters, recording counts. NPU % = unsupported.
+- OLED session screen: left vertical quality bar (hatched when unknown), WIP/DONE/RETRY/ERR,
+  `usable/needed s`, bottom progress bar, tiny ARM/REC/LINK!/NPU!/MEM! tag.
+- Local control FIFO `/tmp/pcg_ctrl.in` for on-board testing; boot script `deploy/S99pcgkolect`.
+- Removed the unused preprocessor and the old session recorder.
+
+### Verification
+- Replay of session_003 (real device data) with target 20 s: auto-started 4.4 s back, finished
+  `complete/TARGET_REACHED` at 20.4 s usable from 20 beats in 37.4 s; quality.csv labels the
+  noisy stretch (pNoise 0.8–0.94) unusable/NOISY.
+- Guards: delete before ack → NOT_VERIFIED; wrong hash → HASH_MISMATCH; force clear →
+  FORCE_DISABLED; delete after ack → deleted.
+- `kill -9` during recording → restart recovers it as `interrupted` with a valid WAV.
+- Live through the ESP at 4 Mbaud: prepare → force_start → stop → manifest → fetch of
+  audio/meta/quality, SHA-256 MATCH, 131 KB/s, 0 CRC errors.

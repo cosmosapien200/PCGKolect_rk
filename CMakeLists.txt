@@ -4,6 +4,14 @@ project(RVFirmware)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+execute_process(COMMAND git describe --always --dirty --tags
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE RV_GIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT RV_GIT)
+    set(RV_GIT "unknown")
+endif()
+add_compile_definitions(RV_FW_VERSION="0.3.0+${RV_GIT}")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_executable(
@@ -12,13 +20,12 @@ add_executable(
     src/main.cpp
     src/system_info.cpp
     src/pcg_stream.cpp
-    src/pcg_preprocessor.cpp
     src/display.cpp
-    src/signal_quality.cpp
     src/seg_model.cpp
     src/seg_quality.cpp
-    src/session_recorder.cpp
     src/control_server.cpp
+    src/recording_store.cpp
+    src/session_engine.cpp
     src/file_service.cpp
     src/sha256.cpp
     lib/cjson/cJSON.c
