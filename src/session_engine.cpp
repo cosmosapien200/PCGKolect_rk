@@ -42,7 +42,7 @@ static std::string isoUtc(int64_t ms) {
     time_t t = static_cast<time_t>(ms / 1000);
     struct tm tm;
     gmtime_r(&t, &tm);
-    char buf[40];
+    char buf[80];
     std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", tm.tm_year + 1900, tm.tm_mon + 1,
                   tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms % 1000));
     return buf;

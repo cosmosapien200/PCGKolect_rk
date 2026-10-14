@@ -376,6 +376,14 @@ The companion ESP32 firmware lives in [`PCGKolect/PCGKolect/`](../PCGKolect/). I
 
 ## 🧪 Testing
 
+### Host tests (no board)
+
+```bash
+make -f tests/Makefile.host     # link parser over a pty + session engine with synthetic beats
+```
+
+Run after any change to `pcg_stream`, `control_server`, `session_engine` or `recording_store`.
+
 ### Session test without the app
 
 On the board (replay of a recording, sessions driven through the control FIFO — see
